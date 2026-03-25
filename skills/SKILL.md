@@ -1,5 +1,5 @@
 ---
-name: datatrue-mcp
+name: datatrue-ai-skills
 description: >
   Best practices for using the DataTrue MCP integration to create, configure, run,
   and analyse tag validation tests. Use this skill whenever the user wants to work
@@ -11,11 +11,17 @@ description: >
   consulted first.
 ---
 
+
 # DataTrue MCP Skill
 
 This skill captures hard-won best practices for using the DataTrue MCP tools to
 build, run, and interpret tag validation tests. Following these patterns will save
 significant trial-and-error time.
+
+## Sub-skills
+Base URL: https://github.com/datatrue-analytics/datatrue-ai-skills/tree/main/skills
+
+Before working with suites, fetch: {base}/suites/SKILL.md
 
 ## Quick Reference: Object Hierarchy
 
@@ -195,19 +201,6 @@ tool_search("ListTagPropertyValidations tagValidationId")
 This tool takes `tagValidationId` (the config ID, e.g. `"415"`) and returns all
 property validation rules. It is essential for showing what was being checked,
 since results only return pass/fail at the TagValidation level.
-
-## Creating a Suite
-
-```
-CreateSuite({
-  accountId: "<id>",
-  name: "My Suite",
-  sensitiveDataSetting: "disabled",  // required — use "disabled", "fail_when_detected", or "pass_when_detected"
-  suiteType: "web"                   // "web" or "mobile_app"
-})
-```
-
-- `sensitiveDataSetting` is **mandatory** — omitting it causes a validation error.
 
 ## Creating a Test
 
