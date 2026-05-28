@@ -73,135 +73,6 @@ that snapshot the configuration at the time the test ran.
 | `TagValidation.id` | e.g. `415` | `TagValidationResult.tagValidationSpec.tagValidationId` |
 | `TagPropertyValidation.id` | e.g. `1469` | rolled up into `TagValidationResult.status` — no per-property result |
 
-### Tool Call Sequence to Report Results
-
-Always follow this sequence to get from a test run to full pass/fail detail:
-
-```
-Step 1: ListTestResults(first: 1, testId: "<test_id>")
-        → get testResult.id
-        → get results.steps[n].stepResultId  ← critical linking ID
-        → get results.steps[n].error         ← did the step itself fail?
-
-Step 2: ListTagValidationResults(first: 10, where: { stepResultId: { eq: "<stepResultId>" } })
-        → get tagValidationResult.id
-        → get tagValidationResult.status     ← "passed" or "failed"
-        → get tagValidationSpec.name         ← human-readable validation name
-
-Step 3 (if failed): ListTagValidationCaptureRequestResults(
-          first: 10,
-          where: { tagValidationResultId: { eq: "<tagValidationResultId>" } }
-        )
-        → reveals actual captured URLs and payloads for debugging
-```
-
-### Annotated Real Example
-
-Below is a real example from test 177 (Readings.com.au GA4 validation) showing
-how configuration IDs map through to results.
-
-**Configuration:**
-```
-Test 177
-  └── Step 1155  "Go to Readings Homepage"
-        └── TagValidation 415  "GA4 - Homepage"
-              ├── TagPropertyValidation 1469  { en equals "page_view" }
-              └── TagPropertyValidation 1466  { tid equals "G-FTC8QEF4W1" }
-```
-
-**Test Results:**
-
-A test result is generated whenever a test is run. A test can have many test results created. 
-Ignore aborted test results unless asked not to.
-
-```
-TestResult 920  (state: "validated")
-  └── StepResult 203  (stepResultId: "203", responseTime: 20941ms, error: null)
-        └── TagValidationResult 224  (status: "passed")
-              tagValidationSpec.name: "GA4 - Homepage"
-              tagValidationSpec.tagValidationId: "415"  ← links back to TagValidation 415
-```
-
-You can create a link to the DataTrue UI test results using this url pattern
-https://app.datatrue.io/tests/<testId>/results?result=<testResultId>
-
-
-**Key point**: `TagPropertyValidation` rules (en=page_view, tid=G-FTC8QEF4W1) are
-evaluated as part of `TagValidationResult.status`. There is no separate per-property
-result — if any property fails, the whole `TagValidationResult` fails.
-
-### Summarising Results: Recommended Display Format
-
-When summarising test results, use this structure for each step:
-
-```
-### Step <position> — <step.name>
-Response time: Xms | Error: <error or "none">
-
-Tag Validation: <tagValidation.name> → ✅ passed / ❌ failed
-| Property | Operator | Expected        | Result |
-|----------|----------|-----------------|--------|
-| en       | equals   | page_view       | ✅     |
-| tid      | equals   | G-FTC8QEF4W1   | ✅     |
-```
-
-### Showing Per-Property Pass/Fail on a Failed Tag Validation
-
-The API does not return per-property results — `TagValidationResult.status` is a single
-pass/fail for the whole tag validation. To determine which individual property validations
-passed or failed you must:
-
-1. Call `ListTagValidationCapturedRequestResults` to get the actual captured request payloads
-2. Compare each `TagPropertyValidation` rule against the captured payload manually
-3. Mark each property as ✅ or ❌ based on whether the captured value satisfies the rule
-
-**Tool call sequence for a failed tag validation:**
-
-```
-Step 1: ListTagValidationResults(where: { stepResultId: { eq: "<stepResultId>" } })
-        → get tagValidationResult.id and status = "failed"
-
-Step 2: ListTagValidationCapturedRequestResults(
-          where: { tagValidationResultId: { eq: "<tagValidationResultId>" } }
-        )
-        → get the actual captured request URL and payload parameters
-
-Step 3: ListTagPropertyValidations(first: 20, tagValidationId: "<tagValidationId>")
-        → get the expected property rules
-
-Step 4: Compare each rule against the captured payload to determine per-property pass/fail
-```
-
-**Example of a failed tag validation display:**
-
-```
-Tag Validation: GA4 - Homepage → ❌ failed
-
-Captured request: https://www.google-analytics.com/g/collect?en=page_view&tid=G-XXXXXXXX
-
-| Property | Operator | Expected       | Captured      | Result |
-|----------|----------|----------------|---------------|--------|
-| en       | equals   | page_view      | page_view     | ✅     |
-| tid      | equals   | G-FTC8QEF4W1  | G-XXXXXXXX    | ❌     |
-```
-
-**Note**: If no request was captured at all (empty results from
-`ListTagValidationCapturedRequestResults`), the tag did not fire — report this
-as "no matching request captured" rather than a per-property failure.
-
-### Loading the ListTagPropertyValidations Tool
-
-`ListTagPropertyValidations` is a **deferred tool** and may not load with generic
-search terms. If it doesn't appear, search explicitly:
-
-```
-tool_search("ListTagPropertyValidations tagValidationId")
-```
-
-This tool takes `tagValidationId` (the config ID, e.g. `"415"`) and returns all
-property validation rules. It is essential for showing what was being checked,
-since results only return pass/fail at the TagValidation level.
-
 ## Creating a Test
 
 ```
@@ -214,7 +85,7 @@ CreateTest({
 ```
 
 AFter create a new test share a link to it using the following pattern
-```https://app.datatrue.io/tests/<testId>/steps```
+```https://app.datatrue.com/tests/<testId>/steps```
 
 ## Creating Steps
 
@@ -286,8 +157,15 @@ Common actions for web simulation tests:
 DataTrue maintains a library of tag definitions which define the criteria 
 (hostname and pathanme regex) for detecting requests that belong to specific tags.
 
-You will need to search for tag definitions when creating tag validations.  
+You will need to search for tag definitions using ListTagDefinitions when creating tag validations.  
 It is best to search using the name field.
+
+```
+ListTagDefinitions({
+  first: 10,
+  where: { name: { like: "%<tag_name>%" } }
+})
+```
 
 ## Tag Validations
 
@@ -340,7 +218,7 @@ JS on the page. There are three main parts to data layer validations, the data s
 assignment of a value returned from a source to a variable and the validation of the 
 returned value either as a string or a JSON object. 
 
-### Read only data layer validations
+### Read/View only data layer validations
 
 A read only data layer validation has a source configuration that collects data, but 
 not assignment to a variable or validation of its value/propeties.  This is useful if 
