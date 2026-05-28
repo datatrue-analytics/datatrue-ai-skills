@@ -1,6 +1,7 @@
-# Creating a Suite
-
+# Suites
 A suite is a smart folder containing tests.
+
+## Creating a Suite
 
 ```
 CreateSuite({
@@ -12,3 +13,5 @@ CreateSuite({
 ```
 
 - `sensitiveDataSetting` is **mandatory** — omitting it causes a validation error.
+
+A link to a suite has this pattern ```https://app.datatrue.com/suites/<suiteID>/tests```
