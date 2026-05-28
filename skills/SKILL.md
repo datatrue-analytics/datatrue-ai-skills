@@ -19,7 +19,10 @@ build, run, and interpret tag validation tests. Following these patterns will sa
 significant trial-and-error time.
 
 ## Sub-skills
-Base URL: https://github.com/datatrue-analytics/datatrue-ai-skills/tree/main/skills
+suites: ./suites/SKILL.md
+personas: ./personas/SKILL.md
+tests: ./tests/SKILL.md
+test-results: ./test-results/SKILL.md
 
 Before working with suites, fetch: {base}/suites/SKILL.md
 
