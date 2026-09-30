@@ -14,6 +14,8 @@ description: >
 
 # DataTrue MCP Skill
 
+> **Canonical home:** these procedures are maintained in `datatrue-agents/skills/` (shared procedures + a tool reference generated from the server's operation files). This public copy is corrected as of 2026-09-30 against the staging server (Apollo MCP Server 1.19.0, 130 operations); production still runs an older operation set — see the capability catalog in `datatrue-agents/docs/`.
+
 This skill captures hard-won best practices for using the DataTrue MCP tools to
 build, run, and interpret tag validation tests. Following these patterns will save
 significant trial-and-error time.
@@ -71,7 +73,7 @@ that snapshot the configuration at the time the test ran.
 |---|---|---|
 | `Step.id` | e.g. `1155` | `results.steps[n].stepResultId` (e.g. `203`) |
 | `TagValidation.id` | e.g. `415` | `TagValidationResult.tagValidationSpec.tagValidationId` |
-| `TagPropertyValidation.id` | e.g. `1469` | rolled up into `TagValidationResult.status` — no per-property result |
+| `TagPropertyValidation.id` | e.g. `1469` | `TagPropertyValidationResult.tagPropertyValidationSpec` (via `ListTagPropertyValidationResults`) — status + renderedValue per property |
 
 ### Tool Call Sequence to Report Results
 
@@ -123,12 +125,12 @@ TestResult 920  (state: "validated")
 ```
 
 You can create a link to the DataTrue UI test results using this url pattern
-https://app.datatrue.io/tests/<testId>/results?result=<testResultId>
+{{app_url}}/tests/<testId>/results?result=<testResultId>  (app_url: app.datatrue.com for production, app.datatrue.io for staging)
 
 
-**Key point**: `TagPropertyValidation` rules (en=page_view, tid=G-FTC8QEF4W1) are
-evaluated as part of `TagValidationResult.status`. There is no separate per-property
-result — if any property fails, the whole `TagValidationResult` fails.
+**Key point**: `TagPropertyValidation` rules (en=page_view, tid=G-FTC8QEF4W1) each get
+their own `TagPropertyValidationResult` (status + rendered value) under the captured request;
+`TagValidationResult.status` is the roll-up — if any property fails, the whole tag validation fails.
 
 ### Summarising Results: Recommended Display Format
 
@@ -147,29 +149,19 @@ Tag Validation: <tagValidation.name> → ✅ passed / ❌ failed
 
 ### Showing Per-Property Pass/Fail on a Failed Tag Validation
 
-The API does not return per-property results — `TagValidationResult.status` is a single
-pass/fail for the whole tag validation. To determine which individual property validations
-passed or failed you must:
-
-1. Call `ListTagValidationCapturedRequestResults` to get the actual captured request payloads
-2. Compare each `TagPropertyValidation` rule against the captured payload manually
-3. Mark each property as ✅ or ❌ based on whether the captured value satisfies the rule
-
-**Tool call sequence for a failed tag validation:**
+Per-property results are recorded by the server — do not recompute them by comparing payloads.
 
 ```
-Step 1: ListTagValidationResults(where: { stepResultId: { eq: "<stepResultId>" } })
-        → get tagValidationResult.id and status = "failed"
+Step 1: ListTagValidationResults(first: 10, where: { stepResultId: { eq: "<stepResultId>" } })
+        → tagValidationResult.id, status = "failed"
 
-Step 2: ListTagValidationCapturedRequestResults(
-          where: { tagValidationResultId: { eq: "<tagValidationResultId>" } }
-        )
-        → get the actual captured request URL and payload parameters
+Step 2: ListTagValidationCaptureRequestResults(first: 10,
+          where: { tagValidationResultId: { eq: "<tagValidationResultId>" } })
+        → tagValidationCapturedRequestResult.id, status, capturedRequest { url, payload }
 
-Step 3: ListTagPropertyValidations(first: 20, tagValidationId: "<tagValidationId>")
-        → get the expected property rules
-
-Step 4: Compare each rule against the captured payload to determine per-property pass/fail
+Step 3: ListTagPropertyValidationResults(first: 20,
+          where: { tagValidationCapturedRequestResultId: { eq: "<id from step 2>" } })
+        → per property: status, renderedValue, tagPropertyValidationSpec { property, operator, value }
 ```
 
 **Example of a failed tag validation display:**
@@ -179,42 +171,42 @@ Tag Validation: GA4 - Homepage → ❌ failed
 
 Captured request: https://www.google-analytics.com/g/collect?en=page_view&tid=G-XXXXXXXX
 
-| Property | Operator | Expected       | Captured      | Result |
+| Property | Operator | Expected       | Rendered      | Result |
 |----------|----------|----------------|---------------|--------|
 | en       | equals   | page_view      | page_view     | ✅     |
 | tid      | equals   | G-FTC8QEF4W1  | G-XXXXXXXX    | ❌     |
 ```
 
 **Note**: If no request was captured at all (empty results from
-`ListTagValidationCapturedRequestResults`), the tag did not fire — report this
+`ListTagValidationCaptureRequestResults`), the tag did not fire — report this
 as "no matching request captured" rather than a per-property failure.
 
-### Loading the ListTagPropertyValidations Tool
+### `ListTagPropertyValidations` (configuration rules)
 
-`ListTagPropertyValidations` is a **deferred tool** and may not load with generic
-search terms. If it doesn't appear, search explicitly:
-
-```
-tool_search("ListTagPropertyValidations tagValidationId")
-```
-
-This tool takes `tagValidationId` (the config ID, e.g. `"415"`) and returns all
-property validation rules. It is essential for showing what was being checked,
-since results only return pass/fail at the TagValidation level.
+`ListTagPropertyValidations(tagValidationId)` returns the *configured* rules of a tag validation.
+As of 2026-09-30 the operation is invalid on the server (a duplicated variable) and every call
+fails; a fix is in review. Until it is deployed, read the rules from `ListTagPropertyValidationResults`
+after a run (each result carries its spec), or from `GetTestConfiguration` once available.
 
 ## Creating a Test
 
+Tool arguments are the operation's variables: every `Create*` tool takes **one object argument**
+named after its input (`newSuite`, `newTest`, `newStep`, `newTagValidation`, `newDataLayerValidation`),
+not flat fields. `Update*` take `id` + `set`. `RunTest` and the `List*` tools take flat arguments.
+
 ```
 CreateTest({
-  name: "My Test",
-  suiteId: "<suite_id>",
-  testType: "simulation",  // "simulation", "coverage", "email", or "mobile_app"
-  enabled: true
+  newTest: {
+    name: "My Test",
+    suiteId: "<suite_id>",
+    testType: "simulation",  // "simulation", "coverage", "email", or "mobile_app"
+    enabled: true
+  }
 })
 ```
 
 AFter create a new test share a link to it using the following pattern
-```https://app.datatrue.io/tests/<testId>/steps```
+```{{app_url}}/tests/<testId>/steps```
 
 ## Creating Steps
 
@@ -227,12 +219,14 @@ tag validations will fail because the network requests haven't been captured yet
 
 ```
 CreateStep({
-  testId: "<test_id>",
-  name: "Go to Homepage",
-  action: "goto_url",
-  target: "https://example.com",
-  position: 0,
-  pause: 8          // ← ESSENTIAL: wait for tags to fire
+  newStep: {
+    testId: "<test_id>",
+    name: "Go to Homepage",
+    action: "goto_url",
+    target: "https://example.com",
+    position: 0,
+    pause: 8          // ← ESSENTIAL: wait for tags to fire
+  }
 })
 ```
 
@@ -303,7 +297,7 @@ The hostnameValidation and pathnameValidation fields can be modified to refine
 the validation but the hostnameDetection and pathnameDetection should not be altered.
 
 ```
-CreateTagValidation({
+CreateTagValidation({ newTagValidation: {
   name: "GA4 Tag Fires",
   parentId: "<step_id>",
   parentType: "step",
@@ -314,7 +308,7 @@ CreateTagValidation({
   pathnameValidation: "<tag_definition.pathnameRegex>",
   validationEnabled: true,
   enabled: true
-})
+} })
 ```
 
 ### Tag Property Validations
@@ -366,7 +360,7 @@ dataLayer.find(e => e.event==='add_to_cart')
 ### Working Pattern for dataLayer Checks
 
 ```
-CreateDataLayerValidation({
+CreateDataLayerValidation({ newDataLayerValidation: {
   name: "GTM dataLayer Contains gtm.js",
   stepId: "<step_id>",
   source: "custom_js",
@@ -381,7 +375,7 @@ CreateDataLayerValidation({
       value: "gtm.js"
     }]
   }
-})
+} })
 ```
 
 ### Validation Requirements
@@ -419,7 +413,7 @@ RunTest({
 
 ### Browser Selection
 
-Use `ListBrowsers` to see available browsers. Common configurations:
+Use `ListBrowserConfigurations(accountId, first)` to see available browsers. Common configurations:
 
 - **Chrome** (ID varies) — the standard choice for web tests
 - **Chrome (local)** — may have infrastructure issues; prefer the regular Chrome config
@@ -517,8 +511,11 @@ See `references/ga4-gtm-workflow.md` for a complete step-by-step workflow.
 
 ## API Quirks and Pitfalls
 
-1. **Deleting validations** — use `DeleteTagValidations` or `DeleteDataLayerValidations`
-   with a `where` filter (e.g., `{ id: { eq: "<id>" } }`).
+1. **Removing validations** — use `TrashTagValidations` / `TrashDataLayerValidations` with an
+   `id` filter (e.g., `id: { eq: "<id>" }`); `Restore*` undoes it. These and every other
+   filter-shaped mutation act on *every* record matching the filter, across every account the
+   key can see — never call them without an `id`. (Production still exposes the older
+   `DeleteTagValidations` / `DeleteDataLayerValidations`, which hard-delete.)
 2. **Position field** — steps use 0-based positioning. If omitted, the step is
    appended at the end.
 3. **Tag validations can be on steps OR tests** — use `parentType: "step"` for
